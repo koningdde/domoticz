@@ -2,6 +2,7 @@
 
 #include "DelayedLink.h"
 #include "Plugins.h"
+#include "../main/Logger.h"
 
 #ifndef byte
 typedef unsigned char byte;
@@ -28,10 +29,18 @@ namespace Plugins {
 			m_Name = __func__;
 			m_When = time(0);
 		};
+		virtual void ProcessLocked() = 0;
 	public:
 		virtual const char* Name() { return m_Name.c_str(); };
 		virtual const CPlugin*	Plugin() { return m_pPlugin; };
-		virtual void Process() = 0;
+		virtual void Process()
+		{
+			std::lock_guard<std::mutex> l(PythonMutex);
+			m_pPlugin->RestoreThread();
+			ProcessLocked();
+			m_pPlugin->ReleaseThread();
+		};
+
 	};
 
 	// Handles lifecycle management of the Python Connection object
@@ -55,8 +64,10 @@ namespace Plugins {
 		InitializeMessage(CPlugin* pPlugin) : CPluginMessageBase(pPlugin) { m_Name = __func__; };
 		virtual void Process()
 		{
+			std::lock_guard<std::mutex> l(PythonMutex);
 			m_pPlugin->Initialise();
 		};
+		virtual void ProcessLocked() {};
 	};
 
 	// Base callback message class
@@ -64,17 +75,9 @@ namespace Plugins {
 	{
 	protected:
 		std::string	m_Callback;
-		virtual void ProcessLocked() = 0;
 	public:
 		CCallbackBase(CPlugin* pPlugin, const std::string &Callback) : CPluginMessageBase(pPlugin), m_Callback(Callback) {};
-		virtual void Callback(PyObject* pParams) { if (m_Callback.length()) m_pPlugin->Callback(m_Callback, pParams); };
-		void Process()
-		{
-			std::lock_guard<std::mutex> l(PythonMutex);
-			m_pPlugin->RestoreThread();
-			ProcessLocked();
-			m_pPlugin->ReleaseThread();
-		};
+		virtual PyObject* Callback(PyObject* pParams) { if (m_Callback.length()) return (PyObject*)m_pPlugin->Callback(m_Callback, pParams); else return NULL; };
 		virtual const char* PythonName() { return m_Callback.c_str(); };
 	};
 
@@ -86,7 +89,8 @@ namespace Plugins {
 		virtual void ProcessLocked()
 		{
 			m_pPlugin->Start();
-			Callback(NULL);
+			PyObject*	pReturnValue = Callback(NULL);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -97,7 +101,8 @@ namespace Plugins {
 	protected:
 		virtual void ProcessLocked()
 		{
-			Callback(NULL);
+			PyObject*	pReturnValue = Callback(NULL);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -143,7 +148,9 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 #else
 			std::string textUTF8 = m_Text; // TODO: Is it safe to assume non-Windows will always be UTF-8?
 #endif
-			Callback(Py_BuildValue("Ois", m_pConnection, m_Status, textUTF8.c_str()));  // 0 is success else socket failure code
+			PyObject*	pParams = Py_BuildValue("Ois", m_pConnection, m_Status, textUTF8.c_str());  // 0 is success else socket failure code
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -154,7 +161,9 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 	protected:
 		virtual void ProcessLocked()
 		{
-			Callback(Py_BuildValue("(O)", m_pConnection));  // 0 is success else socket failure code
+			PyObject*	pParams = Py_BuildValue("(O)", m_pConnection);  // 0 is success else socket failure code
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -168,7 +177,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 			m_pPlugin->onDeviceAdded(m_Unit);
 
 			PyObject*	pParams = Py_BuildValue("(i)", m_Unit);
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -182,7 +192,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 			m_pPlugin->onDeviceModified(m_Unit);
 
 			PyObject*	pParams = Py_BuildValue("(i)", m_Unit);
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -194,7 +205,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 		virtual void ProcessLocked()
 		{
 			PyObject*	pParams = Py_BuildValue("(i)", m_Unit);
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 
 			m_pPlugin->onDeviceRemoved(m_Unit);
 		};
@@ -238,7 +250,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 			{
 				pParams = Py_BuildValue("isis", m_Unit, m_Command.c_str(), m_iLevel, m_iColor.c_str());
 			}
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -259,7 +272,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 		virtual void ProcessLocked()
 		{
 			PyObject*	pParams = Py_BuildValue("iis", m_Unit, m_iLevel, m_Description.c_str());
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -289,21 +303,23 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 		virtual void ProcessLocked()
 		{
 			PyObject*	pParams = NULL;
+			PyObject*	pReturnValue = NULL;
 
 			// Data is stored in a single vector of bytes
 			if (m_Buffer.size())
 			{
 				pParams = Py_BuildValue("Oy#", m_pConnection, &m_Buffer[0], m_Buffer.size());
-				Callback(pParams);
+				pReturnValue = Callback(pParams);
 			}
 
 			// Data is in a dictionary
 			if (m_Data)
 			{
 				pParams = Py_BuildValue("OO", m_pConnection, m_Data);
-				Callback(pParams);
+				pReturnValue = Callback(pParams);
 				Py_XDECREF(m_Data);
 			}
+			Py_XDECREF(pReturnValue);
 		}
 	};
 
@@ -341,7 +357,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 		virtual void ProcessLocked()
 		{
 			PyObject*	pParams = Py_BuildValue("ssssiss", m_SuppliedName.c_str(), m_Subject.c_str(), m_Text.c_str(), m_Status.c_str(), m_Priority, m_Sound.c_str(), m_ImageFile.c_str());
-			Callback(pParams);
+			PyObject*	pReturnValue = Callback(pParams);
+			Py_XDECREF(pReturnValue);
 		};
 	};
 
@@ -352,7 +369,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 	protected:
 		virtual void ProcessLocked()
 		{
-			Callback(NULL);
+			PyObject*	pReturnValue = Callback(NULL);
+			Py_XDECREF(pReturnValue);
 			m_pPlugin->Stop();
 		};
 	};
@@ -447,17 +465,8 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 	// Base event message class
 	class CEventBase : public CPluginMessageBase
 	{
-	protected:
-		virtual void ProcessLocked() = 0;
 	public:
 		CEventBase(CPlugin* pPlugin) : CPluginMessageBase(pPlugin) {};
-		virtual void Process()
-		{
-			std::lock_guard<std::mutex> l(PythonMutex);
-			m_pPlugin->RestoreThread();
-			ProcessLocked();
-			m_pPlugin->ReleaseThread();
-		}
 	};
 
 	class ReadEvent : public CEventBase, public CHasConnection
@@ -486,5 +495,70 @@ static std::string get_utf8_from_ansi(const std::string &utf8, int codepage)
 		DisconnectedEvent(CPlugin* pPlugin, PyObject* Connection, bool NotifyPlugin) : CEventBase(pPlugin), CHasConnection(Connection), bNotifyPlugin(NotifyPlugin) { m_Name = __func__; };
 		virtual void ProcessLocked() { m_pPlugin->DisconnectEvent(this); };
 		bool	bNotifyPlugin;
+	};
+
+	class onDataReceived : public CCallbackBase, public CHasConnection
+	{
+	public:
+		onDataReceived(CPlugin* pPlugin, PyObject* Connection, const int ByteCount, const unsigned char* Data, const int ElapsedMs = -1) : CCallbackBase(pPlugin, "onDataReceived"), CHasConnection(Connection)
+		{
+			m_Name = __func__;
+			m_ElapsedMs = ElapsedMs;
+			m_Buffer.reserve(ByteCount);
+			m_Buffer.assign(Data, Data + ByteCount);
+		};
+		std::vector<byte>		m_Buffer;
+		int						m_ElapsedMs;
+		virtual void ProcessLocked()
+		{
+			// Data is stored in a single vector of bytes
+			if (m_Buffer.size())
+			{
+
+				PyObject*	pParams = Py_BuildValue("Oy#", m_pConnection, &m_Buffer[0], m_Buffer.size());
+				PyObject*	pReturnValue = Callback(pParams);
+
+				if (pReturnValue && pReturnValue->ob_type->tp_name != std::string("NoneType"))
+				{
+					// Replace buffer with returned bytes
+					if (m_pPlugin->m_bDebug & (PDM_CONNECTION | PDM_MESSAGE))
+					{
+						m_pPlugin->WriteDebugBuffer(m_Buffer, true);
+						_log.Log(LOG_NORM, "(" + m_pPlugin->m_Name + ") Received data over written");
+					}
+					m_Buffer.clear();
+
+					// Handle Bytes objects
+					if ((pReturnValue->ob_type->tp_flags & (Py_TPFLAGS_BYTES_SUBCLASS)) != 0)
+					{
+						size_t		iSize = PyBytes_Size(pReturnValue);
+						const char*	pData = PyBytes_AsString(pReturnValue);
+						m_Buffer.reserve((size_t)iSize);
+						m_Buffer.assign(pData, pData + iSize);
+					}
+					// Handle ByteArray objects
+					else if (pReturnValue->ob_type->tp_name == std::string("bytearray"))
+					{
+						size_t		iSize = PyByteArray_Size(pReturnValue);
+						const char*	pData = PyByteArray_AsString(pReturnValue);
+						m_Buffer.reserve(iSize);
+						m_Buffer.assign(pData, pData + iSize);
+					}
+					// Handle String objects
+					else if ((pReturnValue->ob_type->tp_flags & (Py_TPFLAGS_UNICODE_SUBCLASS)) != 0)
+					{
+						std::string	sData = PyUnicode_AsUTF8(pReturnValue);
+						m_Buffer.reserve((size_t)sData.length());
+						m_Buffer.assign((const byte*)sData.c_str(), (const byte*)sData.c_str() + sData.length());
+					}
+					else
+					{
+						_log.Log(LOG_ERROR, "(" + m_pPlugin->m_Name + ") ' onDataReceived: invalid data type returned '" + pReturnValue->ob_type->tp_name + "', Byte, ByteArray or String required.");
+					}
+				}
+				Py_XDECREF(pReturnValue);
+			}
+			m_pPlugin->MessagePlugin(new ReadEvent(m_pPlugin, m_pConnection, m_Buffer.size(), (const byte*)&m_Buffer[0]));
+		};
 	};
 }

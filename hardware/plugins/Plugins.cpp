@@ -1011,8 +1011,6 @@ namespace Plugins {
 	{
 		m_bIsStarted = false;
 
-		std::lock_guard<std::mutex> l(PythonMutex);
-
 		try
 		{
 			PyEval_RestoreThread((PyThreadState*)m_mainworker.m_pluginsystem.PythonThread());
@@ -1649,8 +1647,9 @@ Error:
 			PyEval_SaveThread();
 	}
 
-	void CPlugin::Callback(std::string sHandler, void * pParams)
+	void* CPlugin::Callback(std::string sHandler, void * pParams)
 	{
+		PyObject*	pReturnValue = NULL;
 		try
 		{
 			// Callbacks MUST already have taken the PythonMutex lock otherwise bad things will happen
@@ -1662,10 +1661,17 @@ Error:
 					if (m_bDebug & PDM_QUEUE) _log.Log(LOG_NORM, "(%s) Calling message handler '%s'.", m_Name.c_str(), sHandler.c_str());
 
 					PyErr_Clear();
-					PyObject*	pReturnValue = PyObject_CallObject(pFunc, (PyObject*)pParams);
+					clock_t		CallbackBegin = clock();
+					pReturnValue = PyObject_CallObject(pFunc, (PyObject*)pParams);
+					clock_t		CallbackEnd = clock();
 					if (!pReturnValue)
 					{
 						LogPythonException(sHandler);
+					}
+					double dElapsedSeconds = double(CallbackEnd - CallbackBegin) / CLOCKS_PER_SEC;
+					if (dElapsedSeconds > 2.0)
+					{
+						_log.Log(LOG_ERROR, "(%s) Message handler '%s' took %.3f seconds to execute.", m_Name.c_str(), sHandler.c_str(), dElapsedSeconds);
 					}
 				}
 				else if (m_bDebug & PDM_QUEUE) _log.Log(LOG_NORM, "(%s) Message handler '%s' not callable, ignored.", m_Name.c_str(), sHandler.c_str());
@@ -1681,6 +1687,8 @@ Error:
 		{
 			_log.Log(LOG_ERROR, "%s: Unknown execption thrown", __func__);
 		}
+
+		return pReturnValue;
 	}
 
 	void CPlugin::Stop()

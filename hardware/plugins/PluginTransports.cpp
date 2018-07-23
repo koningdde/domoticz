@@ -242,7 +242,7 @@ namespace Plugins {
 		CPlugin*	pPlugin = ((CConnection*)m_pConnection)->pPlugin;
 		if (!e)
 		{
-			pPlugin->MessagePlugin(new ReadEvent(pPlugin, m_pConnection, bytes_transferred, m_Buffer));
+			pPlugin->MessagePlugin(new onDataReceived(pPlugin, m_pConnection, bytes_transferred, m_Buffer));
 
 			m_tLastSeen = time(0);
 			m_iTotalBytes += bytes_transferred;
@@ -431,7 +431,7 @@ namespace Plugins {
 		CPlugin*	pPlugin = ((CConnection*)m_pConnection)->pPlugin;
 		if (!e)
 		{
-			pPlugin->MessagePlugin(new ReadEvent(pPlugin, m_pConnection, bytes_transferred, m_Buffer));
+			pPlugin->MessagePlugin(new onDataReceived(pPlugin, m_pConnection, bytes_transferred, m_Buffer));
 
 			m_tLastSeen = time(0);
 			m_iTotalBytes += bytes_transferred;
@@ -572,7 +572,7 @@ namespace Plugins {
 
 			// Create Protocol object to handle connection's traffic
 			pConnection->pPlugin->MessagePlugin(new ProtocolDirective(pConnection->pPlugin, (PyObject*)pConnection));
-			pConnection->pPlugin->MessagePlugin(new ReadEvent(pConnection->pPlugin, (PyObject*)pConnection, bytes_transferred, m_Buffer));
+			pConnection->pPlugin->MessagePlugin(new onDataReceived(pConnection->pPlugin, (PyObject*)pConnection, bytes_transferred, m_Buffer));
 
 			m_tLastSeen = time(0);
 			m_iTotalBytes += bytes_transferred;
@@ -773,7 +773,7 @@ namespace Plugins {
 			}
 
 			CPlugin*	pPlugin = ((CConnection*)m_pConnection)->pPlugin;
-			pPlugin->MessagePlugin(new ReadEvent(pPlugin, m_pConnection, 0, NULL));
+			pPlugin->MessagePlugin(new onDataReceived(pPlugin, m_pConnection, 0, NULL));
 			pPlugin->MessagePlugin(new DisconnectDirective(pPlugin, m_pConnection));
 		}
 		else if (ec != boost::asio::error::operation_aborted)  // Timer canceled by message arriving
@@ -818,7 +818,7 @@ namespace Plugins {
 					m_Timer->cancel();
 				}
 
-				pPlugin->MessagePlugin(new ReadEvent(pPlugin, m_pConnection, bytes_transferred, m_Buffer, (iMsElapsed ? iMsElapsed : 1)));
+				pPlugin->MessagePlugin(new onDataReceived(pPlugin, m_pConnection, bytes_transferred, m_Buffer, (iMsElapsed ? iMsElapsed : 1)));
 
 				m_tLastSeen = time(0);
 				m_iTotalBytes += bytes_transferred;
@@ -991,7 +991,7 @@ namespace Plugins {
 		if (bytes_transferred)
 		{
 			CPlugin*	pPlugin = ((CConnection*)m_pConnection)->pPlugin;
-			pPlugin->MessagePlugin(new ReadEvent(pPlugin, m_pConnection, bytes_transferred, (const unsigned char*)data));
+			pPlugin->MessagePlugin(new onDataReceived(pPlugin, m_pConnection, bytes_transferred, (const unsigned char*)data));
 
 			m_tLastSeen = time(0);
 			m_iTotalBytes += bytes_transferred;

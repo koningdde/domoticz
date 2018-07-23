@@ -20,6 +20,17 @@
         Configuration options...
     </description>
     <params>
+        <param field="Mode6" label="Debug" width="150px">
+            <options>
+                <option label="None" value="0"  default="true" />
+                <option label="Python Only" value="2"/>
+                <option label="Basic Debugging" value="62"/>
+                <option label="Basic+Messages" value="126"/>
+                <option label="Connections Only" value="16"/>
+                <option label="Connections+Queue" value="144"/>
+                <option label="All" value="-1"/>
+            </options>
+        </param>
     </params>
 </plugin>
 """
@@ -32,6 +43,9 @@ class BasePlugin:
         return
 
     def onStart(self):
+        if Parameters["Mode6"] != "0":
+            Domoticz.Debugging(int(Parameters["Mode6"]))
+            DumpConfigToLog()
         Domoticz.Log("onStart called")
 
     def onStop(self):
@@ -39,6 +53,9 @@ class BasePlugin:
 
     def onConnect(self, Connection, Status, Description):
         Domoticz.Log("onConnect called")
+
+    def onDataReceived(self, Connection, RawData):
+        return
 
     def onMessage(self, Connection, Data):
         Domoticz.Log("onMessage called")
@@ -60,35 +77,39 @@ _plugin = BasePlugin()
 
 def onStart():
     global _plugin
-    _plugin.onStart()
+    return _plugin.onStart()
 
 def onStop():
     global _plugin
-    _plugin.onStop()
+    return _plugin.onStop()
 
 def onConnect(Connection, Status, Description):
     global _plugin
-    _plugin.onConnect(Connection, Status, Description)
+    return _plugin.onConnect(Connection, Status, Description)
+
+def onDataReceived(Connection, Data):
+    global _plugin
+    return _plugin.onDataReceived(Connection, Data)
 
 def onMessage(Connection, Data):
     global _plugin
-    _plugin.onMessage(Connection, Data)
+    return _plugin.onMessage(Connection, Data)
 
 def onCommand(Unit, Command, Level, Hue):
     global _plugin
-    _plugin.onCommand(Unit, Command, Level, Hue)
+    return _plugin.onCommand(Unit, Command, Level, Hue)
 
 def onNotification(Name, Subject, Text, Status, Priority, Sound, ImageFile):
     global _plugin
-    _plugin.onNotification(Name, Subject, Text, Status, Priority, Sound, ImageFile)
+    return _plugin.onNotification(Name, Subject, Text, Status, Priority, Sound, ImageFile)
 
 def onDisconnect(Connection):
     global _plugin
-    _plugin.onDisconnect(Connection)
+    return _plugin.onDisconnect(Connection)
 
 def onHeartbeat():
     global _plugin
-    _plugin.onHeartbeat()
+    return _plugin.onHeartbeat()
 
     # Generic helper functions
 def DumpConfigToLog():

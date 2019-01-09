@@ -18,8 +18,9 @@ extern "C" {
 
 #include "LuaCommon.h"
 #include "concurrent_queue.h"
+#include "StoppableTask.h"
 
-class CEventSystem : public CLuaCommon
+class CEventSystem : public CLuaCommon, StoppableTask
 {
 	friend class CdzVents;
 	friend class CLuaHandler;
@@ -126,7 +127,7 @@ public:
 	void GetCurrentScenesGroups();
 	void GetCurrentUserVariables();
 	bool UpdateSceneGroup(const uint64_t ulDevID, const int nValue, const std::string &lastUpdate);
-	void UpdateUserVariable(const uint64_t ulDevID, const std::string &varName, const std::string &varValue, const int varType, const std::string &lastUpdate);
+	void UpdateUserVariable(const uint64_t ulDevID, const std::string &varValue, const std::string &lastUpdate);
 	bool PythonScheduleEvent(std::string ID, const std::string &Action, const std::string &eventName);
 	bool GetEventTrigger(const uint64_t ulDevID, const _eReason reason, const bool bEventTrigger);
 	void SetEventTrigger(const uint64_t ulDevID, const _eReason reason, const float fDelayTime);
@@ -186,8 +187,9 @@ private:
 	boost::shared_mutex m_eventtriggerMutex;
 	std::mutex m_measurementStatesMutex;
 	std::mutex luaMutex;
-	volatile bool m_stoprequested;
-	std::shared_ptr<std::thread> m_thread, m_eventqueuethread;
+	std::shared_ptr<std::thread> m_thread;
+	std::shared_ptr<std::thread> m_eventqueuethread;
+	StoppableTask m_TaskQueue;
 	int m_SecStatus;
 	std::string m_lua_Dir;
 	std::string m_szStartTime;
@@ -215,7 +217,7 @@ private:
 	static void luaStop(lua_State *L, lua_Debug *ar);
 	std::string nValueToWording(const uint8_t dType, const uint8_t dSubType, const _eSwitchType switchtype, const int nValue, const std::string &sValue, const std::map<std::string, std::string> & options);
 	static int l_domoticz_print(lua_State* lua_state);
-	void OpenURL(const std::string &URL);
+	void OpenURL(const float delay, const std::string &URL);
 	void WriteToLog(const std::string &devNameNoQuotes, const std::string &doWhat);
 	bool ScheduleEvent(int deviceID, const std::string &Action, bool isScene, const std::string &eventName, int sceneType);
 	bool ScheduleEvent(std::string ID, const std::string &Action, const std::string &eventName);

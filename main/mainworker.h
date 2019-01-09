@@ -7,6 +7,8 @@
 #include "Camera.h"
 #include <deque>
 #include "WindCalculation.h"
+#include "TrendCalculator.h"
+#include "StoppableTask.h"
 #include "../tcpserver/TCPServer.h"
 #include "concurrent_queue.h"
 #include "../webserver/server_settings.hpp"
@@ -14,7 +16,7 @@
 #	include "../hardware/plugins/PluginManager.h"
 #endif
 
-class MainWorker
+class MainWorker : public StoppableTask
 {
 public:
 	MainWorker();
@@ -35,7 +37,7 @@ public:
 	CDomoticzHardwareBase* GetHardwareByIDType(const std::string &HwdId, const _eHardwareTypes HWType);
 	CDomoticzHardwareBase* GetHardwareByType(const _eHardwareTypes HWType);
 
-	void HeartbeatUpdate(const std::string &component);
+	void HeartbeatUpdate(const std::string &component, bool critical = true);
 	void HeartbeatRemove(const std::string &component);
 	void HeartbeatCheck();
 
@@ -49,7 +51,7 @@ public:
 	void DecodeRXMessage(const CDomoticzHardwareBase *pHardware, const unsigned char *pRXCommand, const char *defaultName, const int BatteryLevel);
 	void PushAndWaitRxMessage(const CDomoticzHardwareBase *pHardware, const unsigned char *pRXCommand, const char *defaultName, const int BatteryLevel);
 
-	bool SwitchLight(const std::string &idx, const std::string &switchcmd,const std::string &level, const std::string &color, const std::string &ooc, const int ExtraDelay);
+	bool SwitchLight(const std::string &idx, const std::string &switchcmd, const std::string &level, const std::string &color, const std::string &ooc, const int ExtraDelay);
 	bool SwitchLight(const uint64_t idx, const std::string &switchcmd, const int level, const _tColor color, const bool ooc, const int ExtraDelay);
 	bool SwitchLightInt(const std::vector<std::string> &sd, std::string switchcmd, int level, _tColor color, const bool IsTesting);
 
@@ -79,22 +81,22 @@ public:
 	bool RestartHardware(const std::string &idx);
 
 	bool AddHardwareFromParams(
-				const int ID,
-				const std::string &Name,
-				const bool Enabled,
-				const _eHardwareTypes Type,
-				const std::string &Address, const unsigned short Port, const std::string &SerialPort,
-				const std::string &Username, const std::string &Password,
-				const std::string &Filename,
-				const int Mode1,
-				const int Mode2,
-				const int Mode3,
-				const int Mode4,
-				const int Mode5,
-				const int Mode6,
-				const int DataTimeout,
-				const bool bDoStart
-				);
+		const int ID,
+		const std::string &Name,
+		const bool Enabled,
+		const _eHardwareTypes Type,
+		const std::string &Address, const unsigned short Port, const std::string &SerialPort,
+		const std::string &Username, const std::string &Password,
+		const std::string &Extra,
+		const int Mode1,
+		const int Mode2,
+		const int Mode3,
+		const int Mode4,
+		const int Mode5,
+		const int Mode6,
+		const int DataTimeout,
+		const bool bDoStart
+	);
 
 	void UpdateDomoticzSecurityStatus(const int iSecStatus);
 	void SetInternalSecStatus();
@@ -118,7 +120,7 @@ public:
 	std::string m_szSystemName;
 	std::string m_szDomoticzUpdateURL;
 
-	bool IsUpdateAvailable(const bool bIsForced=false);
+	bool IsUpdateAvailable(const bool bIsForced = false);
 	bool StartDownloadUpdate();
 	bool m_bHaveDownloadedDomoticzUpdate;
 	bool m_bHaveDownloadedDomoticzUpdateSuccessFull;
@@ -131,13 +133,15 @@ public:
 	std::vector<int> m_SunRiseSetMins;
 	std::string m_DayLength;
 	std::vector<std::string> m_webthemes;
-	std::map<unsigned short, _tWindCalculationStruct> m_wind_calculator;
+	std::map<unsigned short, _tWindCalculator> m_wind_calculator;
+	std::map<uint64_t, _tTrendCalculator> m_trend_calculator;
 
+	time_t m_LastHeartbeat = 0;
 private:
 	void HandleAutomaticBackups();
 	uint64_t PerformRealActionFromDomoticzClient(const unsigned char *pRXCommand, CDomoticzHardwareBase **pOriginalHardware);
 	void HandleLogNotifications();
-	std::map<std::string, time_t > m_componentheartbeats;
+	std::map<std::string, std::pair<time_t, bool> > m_componentheartbeats;
 	std::mutex m_heartbeatmutex;
 
 	std::mutex m_decodeRXMessageMutex;
@@ -169,13 +173,11 @@ private:
 #ifdef WWW_ENABLE_SSL
 	http::server::ssl_server_settings m_secure_webserver_settings;
 #endif
-	volatile bool m_stoprequested;
 	std::shared_ptr<std::thread> m_thread;
 	std::mutex m_mutex;
 
 	time_t m_LastUpdateCheck;
 
-	bool StartThread();
 	void Do_Work();
 	void Heartbeat();
 	void ParseRFXLogFile();
@@ -193,9 +195,9 @@ private:
 	unsigned char get_BateryLevel(const _eHardwareTypes HwdType, bool bIsInPercentage, unsigned char level);
 
 	// RxMessage queue resources
-	volatile bool m_stopRxMessageThread;
 	volatile unsigned long m_rxMessageIdx;
 	std::shared_ptr<std::thread> m_rxMessageThread;
+	StoppableTask m_TaskRXMessage;
 	void Do_Work_On_Rx_Messages();
 	struct _tRxQueueItem {
 		std::string Name;
@@ -281,9 +283,11 @@ private:
 	void decode_evohome1(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
 	void decode_evohome2(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
 	void decode_evohome3(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
-   void decode_Cartelectronic(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
-   void decode_CartelectronicTIC(const int HwdID, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
-   void decode_CartelectronicEncoder(const int HwdID, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
+	void decode_Cartelectronic(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
+	void decode_CartelectronicTIC(const int HwdID, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
+	void decode_CartelectronicEncoder(const int HwdID, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
+	void decode_ASyncPort(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
+	void decode_ASyncData(const int HwdID, const _eHardwareTypes HwdType, const tRBUF *pResponse, _tRxMessageProcessingResult & procResult);
 };
 
 extern MainWorker m_mainworker;
